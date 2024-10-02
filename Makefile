@@ -1,6 +1,6 @@
 NAME		=	ircserv
 
-SRC			=	Kek.cpp Base64.cpp
+SRC			=	Kek.cpp Commands.cpp
 
 OBJS		=	$(SRC:.cpp=.o)
 
