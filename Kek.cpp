@@ -104,29 +104,93 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
+// void handleClient(int clientSockfd, const std::string& password) {
+//     char buffer[512];
+//     ssize_t bytesReceived = recv(clientSockfd, buffer, sizeof(buffer) - 1, 0);
+//     if (bytesReceived <= 0) {
+//         close(clientSockfd);
+//         return;
+//     }
+
+//     buffer[bytesReceived] = '\0';
+//     std::string message(buffer);
+
+//     // Example: Basic password check
+//     if (message.find("PASSWORD ") == 0) {
+//         std::string clientPassword = message.substr(9);
+//         if (clientPassword != password) {
+//             std::cerr << "Incorrect password." << std::endl;
+//             close(clientSockfd);
+//             return;
+//         } else {
+//             std::cout << "Password correct. Client authenticated." << std::endl;
+//         }
+//     }
+// }
+
+
+
 void handleClient(int clientSockfd, const std::string& password) {
-    char buffer[512];
-    ssize_t bytesReceived = recv(clientSockfd, buffer, sizeof(buffer) - 1, 0);
-    if (bytesReceived <= 0) {
-        close(clientSockfd);
+    // Authenticate the client with the password before processing further
+    if (password.empty()) {
+        std::cerr << "Error: Empty password provided." << std::endl;
+        return;
+    }
+    
+    // Assuming you send the password to the server for verification:
+    std::string authCommand = "AUTH " + password + "\r\n";
+    if (send(clientSockfd, authCommand.c_str(), authCommand.length(), 0) == -1) {
+        std::cerr << "Error: Could not send authentication command." << std::endl;
         return;
     }
 
-    buffer[bytesReceived] = '\0';
-    std::string message(buffer);
-
-    // Example: Basic password check
-    if (message.find("PASSWORD ") == 0) {
-        std::string clientPassword = message.substr(9);
-        if (clientPassword != password) {
-            std::cerr << "Incorrect password." << std::endl;
-            close(clientSockfd);
-            return;
-        } else {
-            std::cout << "Password correct. Client authenticated." << std::endl;
+    // Then process the client's messages or actions
+    char buffer[512];
+    while (true) {
+        int bytesReceived = recv(clientSockfd, buffer, sizeof(buffer) - 1, 0);
+        if (bytesReceived <= 0) {
+            std::cerr << "Error: Client disconnected or receive error." << std::endl;
+            break;
         }
+        buffer[bytesReceived] = '\0';
+        std::string message(buffer);
+        processMessage(message, clientSockfd); // Assuming processMessage handles commands
     }
+
+    // Close the socket when done
+    close(clientSockfd);
 }
+
+
+// void handleClient(int clientSockfd) {
+//     char buffer[1024];  // Buffer to receive data
+//     std::string messageBuffer;  // String to accumulate messages
+
+//     while (true) {
+//         int bytesReceived = recv(clientSockfd, buffer, sizeof(buffer) - 1, 0);
+//         if (bytesReceived <= 0) {
+//             // Error or client disconnected
+//             std::cerr << "Error: Failed to receive data or client disconnected." << std::endl;
+//             break;
+//         }
+
+//         // Null-terminate the buffer and append to the message buffer
+//         buffer[bytesReceived] = '\0';
+//         messageBuffer += buffer;
+
+//         // Process messages when newline(s) are found
+//         size_t newlinePos;
+//         while ((newlinePos = messageBuffer.find("\r\n")) != std::string::npos) {
+//             std::string message = messageBuffer.substr(0, newlinePos);
+//             processMessage(message, clientSockfd);
+
+//             // Remove processed message from buffer
+//             messageBuffer.erase(0, newlinePos + 2);  // Remove "\r\n"
+//         }
+//     }
+//     close(clientSockfd);
+// }
+
 
 void processMessage(const std::string& message, int clientSockfd) {
     std::string command;
