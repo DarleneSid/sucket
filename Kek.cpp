@@ -9,11 +9,12 @@
 #include <poll.h>
 #include <string>   // For std::string, find, subst
 #include "Commands.hpp"
+#include "Channel.hpp"
+
 
 #define MAX_CLIENTS 1024
 
 void handleClient(int clientSockfd, const std::string& password);
-void processMessage(const std::string& message, int clientSockfd);
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
@@ -192,71 +193,71 @@ void handleClient(int clientSockfd, const std::string& password) {
 // }
 
 
-void processMessage(const std::string& message, int clientSockfd) {
-    std::string command;
-    std::string args;
+// void processMessage(const std::string& message, int clientSockfd) {
+//     std::string command;
+//     std::string args;
 
-    // Find the first space in the message to separate the command and arguments
-    size_t spacePos = message.find(' ');
-    if (spacePos != std::string::npos) {
-        command = message.substr(0, spacePos);    // The command is the first word
-        args = message.substr(spacePos + 1);      // The arguments are everything after the first space
-    } else {
-        command = message; // If no space, the entire message is the command
-    }
+//     // Find the first space in the message to separate the command and arguments
+//     size_t spacePos = message.find(' ');
+//     if (spacePos != std::string::npos) {
+//         command = message.substr(0, spacePos);    // The command is the first word
+//         args = message.substr(spacePos + 1);      // The arguments are everything after the first space
+//     } else {
+//         command = message; // If no space, the entire message is the command
+//     }
 
-    if (command == "KICK") {
-        size_t spacePos2 = args.find(' ');
-        if (spacePos2 != std::string::npos) {
-            std::string channelName = args.substr(0, spacePos2);
-            std::string targetNick = args.substr(spacePos2 + 1);
-            if (!channelName.empty() && !targetNick.empty()) {
-                handleKick(clientSockfd, targetNick, channelName);
-            } else {
-                std::cerr << "Error: Missing arguments for KICK command." << std::endl;
-            }
-        } else {
-            std::cerr << "Error: Missing arguments for KICK command." << std::endl;
-        }
-    }
-    else if (command == "INVITE") {
-        size_t spacePos2 = args.find(' ');
-        if (spacePos2 != std::string::npos) {
-            std::string targetNick = args.substr(0, spacePos2);
-            std::string channelName = args.substr(spacePos2 + 1);
-            if (!targetNick.empty() && !channelName.empty()) {
-                handleInvite(clientSockfd, targetNick, channelName);
-            } else {
-                std::cerr << "Error: Missing arguments for INVITE command." << std::endl;
-            }
-        } else {
-            std::cerr << "Error: Missing arguments for INVITE command." << std::endl;
-        }
-    }
-    else if (command == "TOPIC") {
-        size_t spacePos2 = args.find(' ');
-        std::string channelName = args.substr(0, spacePos2);
-        std::string newTopic = args.substr(spacePos2 + 1); // Everything after the channel name is the topic
-        if (!channelName.empty()) {
-            handleTopic(clientSockfd, channelName, newTopic);
-        } else {
-            std::cerr << "Error: Missing arguments for TOPIC command." << std::endl;
-        }
-    }
-    else if (command == "MODE") {
-        size_t spacePos2 = args.find(' ');
-        std::string channelName = args.substr(0, spacePos2);
-        args = args.substr(spacePos2 + 1);
-        spacePos2 = args.find(' ');
-        std::string mode = args.substr(0, spacePos2);
-        std::string param = args.substr(spacePos2 + 1);
-        if (!channelName.empty() && !mode.empty()) {
-            handleMode(clientSockfd, channelName, mode, param);
-        } else {
-            std::cerr << "Error: Missing arguments for MODE command." << std::endl;
-        }
-    } 
-    else {
-        std::cerr << "Unknown command: " << command << std::endl;
-    }
-}
+//     if (command == "KICK") {
+//         size_t spacePos2 = args.find(' ');
+//         if (spacePos2 != std::string::npos) {
+//             std::string channelName = args.substr(0, spacePos2);
+//             std::string targetNick = args.substr(spacePos2 + 1);
+//             if (!channelName.empty() && !targetNick.empty()) {
+//                 handleKick(clientSockfd, targetNick, channelName);
+//             } else {
+//                 std::cerr << "Error: Missing arguments for KICK command." << std::endl;
+//             }
+//         } else {
+//             std::cerr << "Error: Missing arguments for KICK command." << std::endl;
+//         }
+//     }
+//     else if (command == "INVITE") {
+//         size_t spacePos2 = args.find(' ');
+//         if (spacePos2 != std::string::npos) {
+//             std::string targetNick = args.substr(0, spacePos2);
+//             std::string channelName = args.substr(spacePos2 + 1);
+//             if (!targetNick.empty() && !channelName.empty()) {
+//                 handleInvite(clientSockfd, targetNick, channelName);
+//             } else {
+//                 std::cerr << "Error: Missing arguments for INVITE command." << std::endl;
+//             }
+//         } else {
+//             std::cerr << "Error: Missing arguments for INVITE command." << std::endl;
+//         }
+//     }
+//     else if (command == "TOPIC") {
+//         size_t spacePos2 = args.find(' ');
+//         std::string channelName = args.substr(0, spacePos2);
+//         std::string newTopic = args.substr(spacePos2 + 1); // Everything after the channel name is the topic
+//         if (!channelName.empty()) {
+//             handleTopic(clientSockfd, channelName, newTopic);
+//         } else {
+//             std::cerr << "Error: Missing arguments for TOPIC command." << std::endl;
+//         }
+//     }
+//     else if (command == "MODE") {
+//         size_t spacePos2 = args.find(' ');
+//         std::string channelName = args.substr(0, spacePos2);
+//         args = args.substr(spacePos2 + 1);
+//         spacePos2 = args.find(' ');
+//         std::string mode = args.substr(0, spacePos2);
+//         std::string param = args.substr(spacePos2 + 1);
+//         if (!channelName.empty() && !mode.empty()) {
+//             handleMode(clientSockfd, channelName, mode, param);
+//         } else {
+//             std::cerr << "Error: Missing arguments for MODE command." << std::endl;
+//         }
+//     } 
+//     else {
+//         std::cerr << "Unknown command: " << command << std::endl;
+//     }
+// }
