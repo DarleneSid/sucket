@@ -10,6 +10,7 @@ struct Channel {
     std::string name;
     std::string topic;
     bool inviteOnly;
+    bool topicRestricted;
     int userLimit;
     std::string key;
     std::vector<int> clients;    // Store connected clients' socket IDs

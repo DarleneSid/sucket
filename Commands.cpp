@@ -63,18 +63,29 @@ void processMessage(const std::string& message, int clientSockfd) {
         }
     }
     else if (command == "MODE") {
-        size_t spacePos2 = args.find(' ');
-        std::string channelName = args.substr(0, spacePos2);
-        args = args.substr(spacePos2 + 1);
-        spacePos2 = args.find(' ');
-        std::string mode = args.substr(0, spacePos2);
-        std::string param = args.substr(spacePos2 + 1);
+        size_t spacePos1 = args.find(' ');
+        if (spacePos1 == std::string::npos) {
+            std::cerr << "Error: Missing channel name for MODE command." << std::endl;
+            return;
+        }
+    // Extract the channel name
+        std::string channelName = args.substr(0, spacePos1);
+        std::string remainingArgs = args.substr(spacePos1 + 1);
+    // Now find the mode, which should be the next token
+        size_t spacePos2 = remainingArgs.find(' ');
+        std::string mode = remainingArgs.substr(0, spacePos2);
+    // If there's another space, the param is after the mode
+        std::string param;
+        if (spacePos2 != std::string::npos) {
+            param = remainingArgs.substr(spacePos2 + 1);
+        }
+    // Ensure mode and channelName are not empty
         if (!channelName.empty() && !mode.empty()) {
             handleMode(clientSockfd, channelName, mode, param);
         } else {
             std::cerr << "Error: Missing arguments for MODE command." << std::endl;
         }
-    } 
+    }
     else {
         std::cerr << "Unknown command: " << command << std::endl;
     }
