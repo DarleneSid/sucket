@@ -1,13 +1,65 @@
 #include "Commands.hpp"
-#include "Channel.hpp"
-#include <iostream>
-#include <algorithm>
-#include <sstream> // For stringstream
 
-// Define the global channels variable
 std::map<std::string, Channel> channels;
 
-// Implementation of your functions like handleKick, handleInvite, etc.
+int connectionCount = 0; 
+
+
+std::set<int> operators; 
+
+bool isOperator(int clientSockfd) {
+    return operators.find(clientSockfd) != operators.end();
+}
+
+// Define the global channels variable
+// Set of operator client socket IDs
+
+// Function to check if a client is an operator
+// bool isOperator(int clientSockfd) {
+//     return reference.find(clientSockfd) != reference.end();
+// }
+
+
+// Function to create a new channel
+void createChannel(int clientSockfd, const std::string& channelName) {
+    // Ensure only operators can create channels
+    if (!isOperator(clientSockfd)) {
+        std::cout << "Client " << clientSockfd << " is not an operator and cannot create channels." << std::endl;
+        return;
+    }
+
+    if (channels.find(channelName) != channels.end()) {
+        std::cout << "Channel " << channelName << " already exists." << std::endl;
+        return;
+    }
+
+    Channel newChannel;
+    newChannel.name = channelName;
+    channels[channelName] = newChannel;
+
+    std::cout << "Channel " << channelName << " has been created successfully by operator " << clientSockfd << "." << std::endl;
+}
+
+// Function to process commands
+void processCommand(int clientSockfd, const std::string& command) {
+    std::istringstream stream(command);
+    std::string commandType;
+    stream >> commandType;
+
+    if (commandType == "CREATE") {
+        std::string channelName;
+        stream >> channelName;
+
+        if (channelName.empty()) {
+            std::cout << "Please specify a channel name." << std::endl;
+            return;
+        }
+
+        createChannel(clientSockfd, channelName);
+    } else {
+        std::cout << "Unknown command: " << commandType << std::endl;
+    }
+}
 
 
 
@@ -84,6 +136,18 @@ void processMessage(const std::string& message, int clientSockfd) {
             handleMode(clientSockfd, channelName, mode, param);
         } else {
             std::cerr << "Error: Missing arguments for MODE command." << std::endl;
+        }
+    }
+    else if (command == "CREATE") {
+        // Find the channel name in args
+        size_t spacePos = args.find(' ');
+        std::string channelName = args.substr(0, spacePos);
+
+        // Check if channelName is valid
+        if (!channelName.empty()) {
+            createChannel(clientSockfd, channelName);
+        } else {
+            std::cerr << "Error: Missing channel name for CREATE command." << std::endl;
         }
     }
     else {

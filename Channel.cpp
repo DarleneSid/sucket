@@ -1,11 +1,10 @@
 // Channel.cpp
 #include "Channel.hpp"
-#include "Commands.hpp"
 #include <iostream>
 #include <algorithm> // For std::remove
 #include <sstream>
 
-extern std::map<std::string, Channel> channels; // Declare external map of channels
+// extern std::map<std::string, struct Channel> channels;
 
 // Handle the KICK command
 void handleKick(int clientSockfd, const std::string& targetNick, const std::string& channelName) {
@@ -49,6 +48,12 @@ void handleInvite(int clientSockfd, const std::string& targetNick, const std::st
 
 // Handle the TOPIC command
 void handleTopic(int clientSockfd, const std::string& channelName, const std::string& newTopic) {
+    // Check if the channel exists in the map
+    if (channels.find(channelName) == channels.end()) {
+        std::cout << "Channel " << channelName << " does not exist." << std::endl;
+        return;
+    }
+
     if (newTopic.empty()) {
         std::cout << "Current topic: " << channels[channelName].topic << std::endl;
     } else {
@@ -56,10 +61,26 @@ void handleTopic(int clientSockfd, const std::string& channelName, const std::st
             std::cout << "You are not an operator and can't change the topic." << std::endl;
             return;
         }
+
+        std::string previousTopic = channels[channelName].topic;
         channels[channelName].topic = newTopic;
-        std::cout << "Topic for " << channelName << " has been changed to: " << newTopic << std::endl;
+        std::cout << "Topic for " << channelName << " has been changed from '" 
+                  << previousTopic << "' to '" << newTopic << "'" << std::endl;
     }
 }
+
+// void handleTopic(int clientSockfd, const std::string& channelName, const std::string& newTopic) {
+//     if (newTopic.empty()) {
+//         std::cout << "Current topic: " << channels[channelName].topic << std::endl;
+//     } else {
+//         if (!isChannelOperator(clientSockfd, channelName)) {
+//             std::cout << "You are not an operator and can't change the topic." << std::endl;
+//             return;
+//         }
+//         channels[channelName].topic = newTopic;
+//         std::cout << "Topic for " << channelName << " has been changed to: " << newTopic << std::endl;
+//     }
+// }
 
 void handleMode(int clientSockfd, const std::string& channelName, const std::string& mode, const std::string& param) {
     // Check if the client is an operator in the channel
@@ -143,3 +164,32 @@ bool isClientInChannel(int clientSockfd, const std::string& channelName) {
     (void)channelName;
     return true; // Dummy return
 }
+
+// void createChannel(const std::string& channelName) {
+//     // Check if the channel already exists
+//     if (channels.find(channelName) != channels.end()) {
+//         std::cout << "Channel " << channelName << " already exists." << std::endl;
+//         return;
+//     }
+
+//     // Create a new Channel
+//     Channel newChannel;
+//     newChannel.name = channelName;
+
+//     // Add the new channel to the channels map
+//     channels[channelName] = newChannel;
+
+//     std::cout << "Channel " << channelName << " has been created successfully." << std::endl;
+// }
+
+// void joinChannel(int clientSockfd, const std::string& channelName) {
+//     // Ensure the channel exists
+//     if (channels.find(channelName) == channels.end()) {
+//         std::cout << "Channel " << channelName << " does not exist. Creating it now." << std::endl;
+//         createChannel(channelName);
+//     }
+
+//     // Add the client to the channel's client list
+//     channels[channelName].clients.push_back(clientSockfd);
+//     std::cout << "Client " << clientSockfd << " has joined channel " << channelName << "." << std::endl;
+// }

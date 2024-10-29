@@ -8,11 +8,14 @@
 #include <vector>
 #include <poll.h>
 #include <string>   // For std::string, find, subst
-#include "Commands.hpp"
 #include "Channel.hpp"
+#include "Commands.hpp"
+
 
 
 #define MAX_CLIENTS 1024
+
+
 
 void handleClient(int clientSockfd, const std::string& password);
 
@@ -112,12 +115,20 @@ void handleClient(int clientSockfd, const std::string& password) {
         return;
     }
     
-    // Assuming you send the password to the server for verification:
+    // Send the password to the server for verification
     std::string authCommand = "AUTH " + password + "\r\n";
     if (send(clientSockfd, authCommand.c_str(), authCommand.length(), 0) == -1) {
         std::cerr << "Error: Could not send authentication command." << std::endl;
         return;
     }
+
+    // Assign operator status to the first client
+    if (connectionCount == 0) {
+        operators.insert(clientSockfd);  // First client becomes an operator
+        std::cout << "Client " << clientSockfd << " is the first connection and has been made an operator." << std::endl;
+    }
+
+    connectionCount++;  // Increment the connection count
 
     // Then process the client's messages or actions
     char buffer[512];
@@ -135,3 +146,34 @@ void handleClient(int clientSockfd, const std::string& password) {
     // Close the socket when done
     close(clientSockfd);
 }
+
+// void handleClient(int clientSockfd, const std::string& password) {
+//     // Authenticate the client with the password before processing further
+//     if (password.empty()) {
+//         std::cerr << "Error: Empty password provided." << std::endl;
+//         return;
+//     }
+    
+//     // Assuming you send the password to the server for verification:
+//     std::string authCommand = "AUTH " + password + "\r\n";
+//     if (send(clientSockfd, authCommand.c_str(), authCommand.length(), 0) == -1) {
+//         std::cerr << "Error: Could not send authentication command." << std::endl;
+//         return;
+//     }
+
+//     // Then process the client's messages or actions
+//     char buffer[512];
+//     while (true) {
+//         int bytesReceived = recv(clientSockfd, buffer, sizeof(buffer) - 1, 0);
+//         if (bytesReceived <= 0) {
+//             std::cerr << "Error: Client disconnected or receive error." << std::endl;
+//             break;
+//         }
+//         buffer[bytesReceived] = '\0';
+//         std::string message(buffer);
+//         processMessage(message, clientSockfd); // Assuming processMessage handles commands
+//     }
+
+//     // Close the socket when done
+//     close(clientSockfd);
+// }

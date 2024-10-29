@@ -4,12 +4,16 @@
 
 #include <string>
 #include <map>
-#include "Channel.hpp" // Include your Channel struct definition
+#include <iostream>
+#include <algorithm>
+#include <sstream> // For stringstream
+#include <set>
+#include "Channel.hpp"
 
-// Declare channels as an external variable
-
+bool isOperator(int clientSockfd);
 void processMessage(const std::string& message, int clientSockfd);
 int findClientByNick(const std::string& nick);
+void createChannel(int clientSockfd, const std::string& channelName);
 
 #endif // COMMANDS_HPP
 

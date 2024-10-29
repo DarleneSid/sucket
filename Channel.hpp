@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <map>
 #include "Commands.hpp"
 
 // Define a struct to represent a channel
@@ -15,7 +16,6 @@ struct Channel {
     std::string key;
     std::vector<int> clients;    // Store connected clients' socket IDs
     std::vector<int> operators;  // Store operator socket IDs
-
     // Default constructor
     Channel() : name(""), topic(""), inviteOnly(false), userLimit(10), key("") {}
 
@@ -23,6 +23,14 @@ struct Channel {
     Channel(const std::string& channelName)
         : name(channelName), topic(""), inviteOnly(false), userLimit(10), key("") {}
 };
+
+extern std::map<std::string, struct Channel> channels;
+extern int connectionCount;
+extern std::set<int> operators; 
+
+
+
+
 
 void handleKick(int clientSockfd, const std::string& targetNick, const std::string& channelName);
 void handleInvite(int clientSockfd, const std::string& targetNick, const std::string& channelName);
