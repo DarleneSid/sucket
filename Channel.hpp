@@ -10,6 +10,7 @@
 struct Channel {
     std::string name;
     std::string topic;
+    std::vector<int> invitedUsers;
     bool inviteOnly;
     bool topicRestricted;
     int userLimit;
@@ -24,13 +25,16 @@ struct Channel {
         : name(channelName), topic(""), inviteOnly(false), userLimit(10), key("") {}
 };
 
+struct User {
+    int sockfd;
+    std::string nickname;
+    std::vector<std::string> channels;
+};
+
+extern std::map<int, User> users;
 extern std::map<std::string, struct Channel> channels;
 extern int connectionCount;
 extern std::set<int> operators; 
-
-
-
-
 
 void handleKick(int clientSockfd, const std::string& targetNick, const std::string& channelName);
 void handleInvite(int clientSockfd, const std::string& targetNick, const std::string& channelName);
@@ -39,5 +43,6 @@ void handleMode(int clientSockfd, const std::string& channelName, const std::str
 int findClientByNick(const std::string& nick);
 bool isChannelOperator(int clientSockfd, const std::string& channelName);
 bool isClientInChannel(int clientSockfd, const std::string& channelName);
+bool doesChannelExist(const std::string& channelName);
 
 #endif // CHANNEL_HPP

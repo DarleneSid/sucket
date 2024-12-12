@@ -1,23 +1,27 @@
 #include <iostream>
-#include <cstring>      // For memset, strerror
-#include <cstdlib>      // For strtol
-#include <sys/types.h>  // For socket, bind, listen, accept
-#include <sys/socket.h> // For socket, bind, listen, accept
-#include <netinet/in.h> // For sockaddr_in
-#include <unistd.h>     // For close
+#include <cstring>
+#include <cstdlib>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
 #include <vector>
 #include <poll.h>
-#include <string>   // For std::string, find, subst
-#include "Channel.hpp"
+#include <string>
+#include <map>
+
 #include "Commands.hpp"
-
-
+#include "Channel.hpp"
 
 #define MAX_CLIENTS 1024
+#define BUFFER_SIZE 1024
 
-
-
-void handleClient(int clientSockfd, const std::string& password);
+struct Client {
+    int fd;
+    bool authenticated;
+    std::string buffer;
+    Client() : fd(-1), authenticated(false) {}
+};
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
@@ -25,155 +29,102 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Use strtol for string to integer conversion (port number)
-    char *endptr;
-    long port = strtol(argv[1], &endptr, 10);
-    if (*endptr != '\0' || port <= 0 || port > 65535) {
-        std::cerr << "Error: Invalid port number." << std::endl;
-        return 1;
-    }
-
+    int port = atoi(argv[1]);
     std::string password = argv[2];
 
-    // Create a socket
-    int serverSockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (serverSockfd == -1) {
-        std::cerr << "Error: Could not create socket." << std::endl;
+    int serverSock = socket(AF_INET, SOCK_STREAM, 0);
+    if (serverSock < 0) {
+        std::cerr << "Error creating socket" << std::endl;
         return 1;
     }
 
-    // Set up the server address struct
     sockaddr_in serverAddr;
     memset(&serverAddr, 0, sizeof(serverAddr));
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_port = htons(static_cast<uint16_t>(port));  // Use the port
+    serverAddr.sin_port = htons(port);
 
-    // Bind the socket
-    if (bind(serverSockfd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) == -1) {
-        std::cerr << "Error: Could not bind socket." << std::endl;
-        close(serverSockfd);
+    if (bind(serverSock, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
+        std::cerr << "Error binding socket" << std::endl;
         return 1;
     }
 
-    // Listen for incoming connections
-    if (listen(serverSockfd, 5) == -1) {
-        std::cerr << "Error: Could not listen on socket." << std::endl;
-        close(serverSockfd);
+    if (listen(serverSock, 5) < 0) {
+        std::cerr << "Error listening on socket" << std::endl;
         return 1;
     }
 
-    std::vector<pollfd> fds(MAX_CLIENTS);
-    fds[0].fd = serverSockfd;
+    std::vector<pollfd> fds(1);
+    fds[0].fd = serverSock;
     fds[0].events = POLLIN;
-    size_t nfds = 1;
+
+    std::map<int, Client> clients;
 
     while (true) {
-        int ret = poll(fds.data(), nfds, -1);
-        if (ret < 0) {
-            std::cerr << "Error: Poll failed." << std::endl;
+        int activity = poll(&fds[0], fds.size(), -1);
+        if (activity < 0) {
+            std::cerr << "Poll error" << std::endl;
             break;
         }
 
-        for (size_t i = 0; i < nfds; ++i) {
+        if (fds[0].revents & POLLIN) {
+            int clientSock = accept(serverSock, NULL, NULL);
+            if (clientSock < 0) {
+                std::cerr << "Error accepting connection" << std::endl;
+                continue;
+            }
+
+            pollfd newPollFd;
+            newPollFd.fd = clientSock;
+            newPollFd.events = POLLIN;
+            fds.push_back(newPollFd);
+
+            clients[clientSock] = Client();
+            clients[clientSock].fd = clientSock;
+
+            send(clientSock, "Enter password:\n", 16, 0);
+        }
+
+        for (size_t i = 1; i < fds.size(); i++) {
             if (fds[i].revents & POLLIN) {
-                if (fds[i].fd == serverSockfd) {
-                    // Accept new client connection
-                    int clientSockfd = accept(serverSockfd, NULL, NULL);
-                    if (clientSockfd >= 0) {
-                        fds[nfds].fd = clientSockfd;
-                        fds[nfds].events = POLLIN;
-                        ++nfds;
-                    }
-                } else {
-                    // Handle data from an existing client
-                    char buffer[512];
-                    ssize_t bytesReceived = recv(fds[i].fd, buffer, sizeof(buffer) - 1, 0);
-                    if (bytesReceived <= 0) {
-                        close(fds[i].fd);
-                        fds[i] = fds[nfds - 1];
-                        --nfds;
+                char buffer[BUFFER_SIZE];
+                int bytesRead = recv(fds[i].fd, buffer, BUFFER_SIZE - 1, 0);
+
+                if (bytesRead <= 0) {
+                    close(fds[i].fd);
+                    clients.erase(fds[i].fd);
+                    fds.erase(fds.begin() + i);
+                    i--;
+                    continue;
+                }
+
+                buffer[bytesRead] = '\0';
+                clients[fds[i].fd].buffer += buffer;
+
+                size_t pos;
+                while ((pos = clients[fds[i].fd].buffer.find('\n')) != std::string::npos) {
+                    std::string message = clients[fds[i].fd].buffer.substr(0, pos);
+                    clients[fds[i].fd].buffer.erase(0, pos + 1);
+
+                    if (!clients[fds[i].fd].authenticated) {
+                        if (message == password) {
+                            clients[fds[i].fd].authenticated = true;
+                            send(fds[i].fd, "Authentication successful.\n", 27, 0);
+                        } else {
+                            send(fds[i].fd, "Authentication failed. Try again:\n", 34, 0);
+                        }
                     } else {
-                        buffer[bytesReceived] = '\0';
-                        std::string message(buffer);
-                        std::cout << "Received: " << message << std::endl;
-                        handleClient(fds[i].fd, password); // Process client data
+                        std::cout << "Message from client " << fds[i].fd << ": " << message << std::endl;
+                        processMessage(message, fds[i].fd);
                     }
                 }
             }
         }
     }
 
-    close(serverSockfd);
+    for (size_t i = 0; i < fds.size(); i++) {
+        close(fds[i].fd);
+    }
+
     return 0;
 }
-
-void handleClient(int clientSockfd, const std::string& password) {
-    // Authenticate the client with the password before processing further
-    if (password.empty()) {
-        std::cerr << "Error: Empty password provided." << std::endl;
-        return;
-    }
-    
-    // Send the password to the server for verification
-    std::string authCommand = "AUTH " + password + "\r\n";
-    if (send(clientSockfd, authCommand.c_str(), authCommand.length(), 0) == -1) {
-        std::cerr << "Error: Could not send authentication command." << std::endl;
-        return;
-    }
-
-    // Assign operator status to the first client
-    if (connectionCount == 0) {
-        operators.insert(clientSockfd);  // First client becomes an operator
-        std::cout << "Client " << clientSockfd << " is the first connection and has been made an operator." << std::endl;
-    }
-
-    connectionCount++;  // Increment the connection count
-
-    // Then process the client's messages or actions
-    char buffer[512];
-    while (true) {
-        int bytesReceived = recv(clientSockfd, buffer, sizeof(buffer) - 1, 0);
-        if (bytesReceived <= 0) {
-            std::cerr << "Error: Client disconnected or receive error." << std::endl;
-            break;
-        }
-        buffer[bytesReceived] = '\0';
-        std::string message(buffer);
-        processMessage(message, clientSockfd); // Assuming processMessage handles commands
-    }
-
-    // Close the socket when done
-    close(clientSockfd);
-}
-
-// void handleClient(int clientSockfd, const std::string& password) {
-//     // Authenticate the client with the password before processing further
-//     if (password.empty()) {
-//         std::cerr << "Error: Empty password provided." << std::endl;
-//         return;
-//     }
-    
-//     // Assuming you send the password to the server for verification:
-//     std::string authCommand = "AUTH " + password + "\r\n";
-//     if (send(clientSockfd, authCommand.c_str(), authCommand.length(), 0) == -1) {
-//         std::cerr << "Error: Could not send authentication command." << std::endl;
-//         return;
-//     }
-
-//     // Then process the client's messages or actions
-//     char buffer[512];
-//     while (true) {
-//         int bytesReceived = recv(clientSockfd, buffer, sizeof(buffer) - 1, 0);
-//         if (bytesReceived <= 0) {
-//             std::cerr << "Error: Client disconnected or receive error." << std::endl;
-//             break;
-//         }
-//         buffer[bytesReceived] = '\0';
-//         std::string message(buffer);
-//         processMessage(message, clientSockfd); // Assuming processMessage handles commands
-//     }
-
-//     // Close the socket when done
-//     close(clientSockfd);
-// }

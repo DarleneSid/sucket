@@ -1,73 +1,128 @@
 // Channel.cpp
 #include "Channel.hpp"
+#include "Commands.hpp"
 #include <iostream>
 #include <algorithm> // For std::remove
 #include <sstream>
+#include <sys/socket.h>
 
-// extern std::map<std::string, struct Channel> channels;
+std::map<int, User> users;
+std::map<std::string, struct Channel> channels;
+std::set<int> operators; 
+
+void sendMessage(int clientSockfd, const std::string& message) {
+    send(clientSockfd, message.c_str(), message.length(), 0);
+}
+
+std::string intToString(int value) {
+    std::ostringstream oss;
+    oss << value;
+    return oss.str();
+}
 
 // Handle the KICK command
 void handleKick(int clientSockfd, const std::string& targetNick, const std::string& channelName) {
+    if (!doesChannelExist(channelName)){
+         sendMessage(clientSockfd, "Channel is not exist.\n");
+        return;
+    }
     if (!isChannelOperator(clientSockfd, channelName)) {
-        std::cout << "You are not an operator in this channel." << std::endl;
+        sendMessage(clientSockfd, "You are not an operator in this channel.\n");
         return;
     }
 
-    int targetClientSockfd = findClientByNick(targetNick); // Implement this function
+    int targetClientSockfd = findClientByNick(targetNick);
     if (targetClientSockfd == -1 || !isClientInChannel(targetClientSockfd, channelName)) {
-        std::cout << "Client is not in the channel." << std::endl;
+        sendMessage(clientSockfd, "Client is not in the channel.\n");
         return;
     }
 
+    Channel& channel = channels[channelName];
+    
     // Remove the client from the channel
-    channels[channelName].clients.erase(
-        std::remove(channels[channelName].clients.begin(), channels[channelName].clients.end(), targetClientSockfd),
-        channels[channelName].clients.end()
-    );
+    channel.clients.erase(std::remove(channel.clients.begin(), channel.clients.end(), targetClientSockfd), channel.clients.end());
+    
+    // Remove the channel from the user's list
+    users[targetClientSockfd].channels.erase(std::remove(users[targetClientSockfd].channels.begin(), users[targetClientSockfd].channels.end(), channelName), users[targetClientSockfd].channels.end());
 
-    std::cout << "Client " << targetNick << " has been kicked from " << channelName << std::endl;
+    // Notify all users in the channel about the kick
+    std::string kickMessage = targetNick + " has been kicked from " + channelName + ".\n";
+    for (std::vector<int>::iterator it = channel.clients.begin(); it != channel.clients.end(); ++it) {
+        sendMessage(*it, kickMessage);
+    }
 }
 
-// Handle the INVITE command
 void handleInvite(int clientSockfd, const std::string& targetNick, const std::string& channelName) {
+    if (!doesChannelExist(channelName)){
+         sendMessage(clientSockfd, "Channel is not exist.\n");
+        return;
+    }
     if (!isChannelOperator(clientSockfd, channelName)) {
-        std::cout << "You are not an operator in this channel." << std::endl;
+        sendMessage(clientSockfd, "You are not an operator in this channel.\n");
         return;
     }
 
-    int targetClientSockfd = findClientByNick(targetNick); // Implement this function
-    if (targetClientSockfd == -1) {
-        std::cout << "Client not found." << std::endl;
-        return;
-    }
+    Channel& channel = channels[channelName];
+    if (channel.inviteOnly) {
+        int targetClientSockfd = findClientByNick(targetNick);
+        if (targetClientSockfd == -1) {
+            sendMessage(clientSockfd, "Client not found.\n");
+            return;
+        }
 
-    // Add client to the channel
-    channels[channelName].clients.push_back(targetClientSockfd);
-    std::cout << "Client " << targetNick << " has been invited to " << channelName << std::endl;
+        // Add client to the invited list
+        channel.invitedUsers.push_back(targetClientSockfd);
+        
+        // Notify the invited user
+        sendMessage(targetClientSockfd, "You have been invited to join " + channelName + ".\n");
+        sendMessage(clientSockfd, "Client " + targetNick + " has been invited to " + channelName + ".\n");
+    } else {
+        sendMessage(clientSockfd, "Channel is not invite-only.\n");
+    }
 }
 
 // Handle the TOPIC command
 void handleTopic(int clientSockfd, const std::string& channelName, const std::string& newTopic) {
-    // Check if the channel exists in the map
-    if (channels.find(channelName) == channels.end()) {
-        std::cout << "Channel " << channelName << " does not exist." << std::endl;
+    std::map<std::string, Channel>::iterator it = channels.find(channelName);
+    
+    if (it == channels.end()) {
+        send(clientSockfd, "Error: No such channel.\n", 24, 0);
         return;
     }
 
-    if (newTopic.empty()) {
-        std::cout << "Current topic: " << channels[channelName].topic << std::endl;
-    } else {
+    Channel& channel = it->second;
+
+    if (!newTopic.empty()) {
+        // Check if user is a channel operator before allowing them to set the topic
         if (!isChannelOperator(clientSockfd, channelName)) {
-            std::cout << "You are not an operator and can't change the topic." << std::endl;
+            send(clientSockfd, "Error: You do not have permission to change the topic.\n", 55, 0);
             return;
         }
 
-        std::string previousTopic = channels[channelName].topic;
-        channels[channelName].topic = newTopic;
-        std::cout << "Topic for " << channelName << " has been changed from '" 
-                  << previousTopic << "' to '" << newTopic << "'" << std::endl;
+        // Set the new topic
+        channel.topic = newTopic;
+        
+        // Notify all clients in the channel about the new topic
+        std::ostringstream oss;
+        oss << ":" << users[clientSockfd].nickname << " TOPIC " << channelName << " :" << newTopic << "\n";
+        
+        for (std::vector<int>::iterator clientIt = channel.clients.begin(); clientIt != channel.clients.end(); ++clientIt) {
+            send(*clientIt, oss.str().c_str(), oss.str().length(), 0);
+        }
+        
+    } else {
+        // If no new topic is provided, just show the current topic
+        if (channel.topic.empty()) {
+            send(clientSockfd, "No topic is set for this channel.\n", 35, 0);
+        } else {
+            std::ostringstream oss;
+            oss << "Current topic for " << channelName << ": " << channel.topic << "\n";
+            send(clientSockfd, oss.str().c_str(), oss.str().length(), 0);
+        }
     }
 }
+
+
 
 // void handleTopic(int clientSockfd, const std::string& channelName, const std::string& newTopic) {
 //     if (newTopic.empty()) {
@@ -83,87 +138,120 @@ void handleTopic(int clientSockfd, const std::string& channelName, const std::st
 // }
 
 void handleMode(int clientSockfd, const std::string& channelName, const std::string& mode, const std::string& param) {
-    // Check if the client is an operator in the channel
     if (!isChannelOperator(clientSockfd, channelName)) {
-        std::cout << "You are not an operator in this channel." << std::endl;
+        sendMessage(clientSockfd, "You are not an operator in this channel.\n");
         return;
     }
 
-    // Find the channel by name
     Channel& channel = channels[channelName];
 
-    if (mode == "i") {
+    if (mode == "-i") {
         // Toggle Invite-only mode
         channel.inviteOnly = !channel.inviteOnly;
-        std::cout << "Invite-only mode set to " << (channel.inviteOnly ? "on" : "off") << " for " << channelName << std::endl;
-
-    } else if (mode == "t") {
+        std::string status = (channel.inviteOnly ? "on" : "off");
+        
+        for (std::vector<int>::iterator it = channel.clients.begin(); it != channel.clients.end(); ++it) {
+            sendMessage(*it, "Invite-only mode set to " + status + " for " + channelName + ".\n");
+        }
+        
+    } else if (mode == "-t") {
         // Toggle restriction of topic command to operators only
         channel.topicRestricted = !channel.topicRestricted;
-        std::cout << "Topic restriction set to " << (channel.topicRestricted ? "operators only" : "anyone") << " for " << channelName << std::endl;
+        std::string status = (channel.topicRestricted ? "operators only" : "anyone");
 
-    } else if (mode == "k") {
-        // Set the channel key (password)
+        for (std::vector<int>::iterator it = channel.clients.begin(); it != channel.clients.end(); ++it) {
+            sendMessage(*it, "Topic restriction set to " + status + " for " + channelName + ".\n");
+        }
+        
+    } else if (mode == "-k") {
+        // Set or remove the channel key (password)
         if (param.empty()) {
-            std::cout << "Channel key removed." << std::endl;
+            sendMessage(clientSockfd, "Channel key removed.\n");
             channel.key = "";
+            for (std::vector<int>::iterator it = channel.clients.begin(); it != channel.clients.end(); ++it) {
+                sendMessage(*it, "Channel key has been removed for " + channelName + ".\n");
+            }
         } else {
             channel.key = param;
-            std::cout << "Channel key set to: " << param << std::endl;
+            for (std::vector<int>::iterator it = channel.clients.begin(); it != channel.clients.end(); ++it) {
+                sendMessage(*it, "Channel key set to: " + param + "\n");
+            }
         }
 
-    } else if (mode == "l") {
+    } else if (mode == "-l") {
         // Set the user limit for the channel
-        std::stringstream ss(param);
         int userLimit;
-        if (!(ss >> userLimit)) {
-            std::cout << "Invalid user limit." << std::endl;
+        
+        std::istringstream iss(param);
+        if (!(iss >> userLimit)) {
+            sendMessage(clientSockfd, "Invalid user limit.\n");
             return;
         }
+        
         channel.userLimit = userLimit;
-        std::cout << "User limit set to " << userLimit << " for " << channelName << std::endl;
 
-    } else if (mode == "o") {
+        for (std::vector<int>::iterator it = channels[channelName].clients.begin(); it != channels[channelName].clients.end(); ++it) {
+            sendMessage(*it, "User limit set to " + intToString(userLimit) + " for " + channelName + ".\n");
+        }
+
+    } else if (mode == "-o") {
         // Grant or take operator privilege from a user
-        std::stringstream ss(param);  // Use stringstream for conversion
-        int targetClientSocket;
-        if (!(ss >> targetClientSocket)) {
-            std::cout << "Invalid socket ID." << std::endl;
+        int targetClientSocket = findClientByNick(param); // Assuming param is a nickname
+        
+        if (targetClientSocket == -1) {
+            sendMessage(clientSockfd, "Invalid nickname.\n");
             return;
         }
 
         if (isChannelOperator(targetClientSocket, channelName)) {
             // Remove operator privilege
-            channel.operators.erase(std::remove(channel.operators.begin(), channel.operators.end(), targetClientSocket), channel.operators.end());
-            std::cout << "Removed operator privilege from user with socket ID: " << targetClientSocket << std::endl;
+            channels[channelName].operators.erase(
+                std::remove(channels[channelName].operators.begin(), channels[channelName].operators.end(), targetClientSocket),
+                channels[channelName].operators.end());
+                
+            sendMessage(clientSockfd, param + "'s operator privilege has been removed.\n");
+
+            for (std::vector<int>::iterator it = channels[channelName].clients.begin(); it != channels[channelName].clients.end(); ++it) {
+                sendMessage(*it, param + "'s operator privilege has been removed in "+channelName+".\n");
+            }
+            
         } else {
             // Grant operator privilege
-            channel.operators.push_back(targetClientSocket);
-            std::cout << "Granted operator privilege to user with socket ID: " << targetClientSocket << std::endl;
+            channels[channelName].operators.push_back(targetClientSocket);
+            sendMessage(clientSockfd, param + "'s operator privilege has been granted.\n");
+
+            for (std::vector<int>::iterator it = channels[channelName].clients.begin(); it != channels[channelName].clients.end(); ++it) {
+                sendMessage(*it, param + "'s operator privilege has been granted in "+channelName+".\n");
+            }
+            
         }
-
     } else {
-        std::cout << "Unknown mode: " << mode << std::endl;
-    }
-}
-
-// Dummy implementation for findClientByNick, isChannelOperator, and isClientInChannel
-int findClientByNick(const std::string& nick) {
-    (void)nick;  // This tells the compiler to ignore the unused parameter warning
-    return -1; // Dummy return
+         sendMessage(clientSockfd,"Unknown mode: "+mode+"\n");
+     }
 }
 
 bool isChannelOperator(int clientSockfd, const std::string& channelName) {
-    (void)clientSockfd;
-    (void)channelName;
-    return true; // Dummy return
+    std::map<std::string, Channel>::iterator it = channels.find(channelName);
+    if (it != channels.end()) {
+        return std::find(it->second.operators.begin(), it->second.operators.end(), clientSockfd) != it->second.operators.end();
+    }
+    return false;
 }
 
+
+
 bool isClientInChannel(int clientSockfd, const std::string& channelName) {
-    (void)clientSockfd;
-    (void)channelName;
-    return true; // Dummy return
+    std::map<std::string, Channel>::iterator it = channels.find(channelName);
+    if (it != channels.end()) {
+        return std::find(it->second.clients.begin(), it->second.clients.end(), clientSockfd) != it->second.clients.end();
+    }
+    return false;
 }
+
+bool doesChannelExist(const std::string& channelName) {
+    return channels.find(channelName) != channels.end();
+}
+
 
 // void createChannel(const std::string& channelName) {
 //     // Check if the channel already exists
